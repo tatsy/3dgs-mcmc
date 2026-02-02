@@ -1,0 +1,93 @@
+[project]
+name = "3dgs-mcmc"
+version = "0.1.0"
+description = "Gaussian splatting"
+authors = [{ name = "Your Name", email = "you@example.com" }]
+license-files = ["LICENSE.md"]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=2.3.2",
+  "joblib>=1.5.1",
+  "matplotlib>=3.10.5",
+  "opencv-python>=4.11.0.86",
+  "plyfile>=1.1.2",
+  "rich>=14.1.0",
+  "tensorboard>=2.20.0",
+  "tqdm>=4.67.1",
+  "torch (>=2.6.0,<2.7.0)",
+  "torchvision (>=0.21.0,<0.22.0)",
+  "scikit-build-core>=0.11.5",
+  "pybind11>=3.0.0",
+  "cmake>=4.1.0",
+  "ninja>=1.13.0",
+]
+
+[project.optional-dependencies]
+build = ["simple-knn", "fused-ssim", "diff-gaussian-rasterization"]
+
+[dependency-groups]
+dev = ["flake8-pyproject>=1.2.3", "mypy>=1.17.1", "ruff>=0.12.9"]
+
+[tool.uv]
+no-build-isolation-package = [
+  "simple-knn",
+  "fused-ssim",
+  "diff-gaussian-rasterization",
+]
+
+[tool.uv.sources]
+torch = [
+  { marker = "sys_platform == 'win32'", index = "pytorch-cu124" },
+  { marker = "sys_platform == 'linux'", index = "pytorch-cu124" },
+  { marker = "sys_platform == 'darwin'", index = "pytorch-cpu" },
+]
+
+torchvision = [
+  { marker = "sys_platform == 'win32'", index = "pytorch-cu124" },
+  { marker = "sys_platform == 'linux'", index = "pytorch-cu124" },
+  { marker = "sys_platform == 'darwin'", index = "pytorch-cpu" },
+]
+
+fused-ssim = { path = "submodules/fused-ssim", editable = true }
+simple-knn = { path = "submodules/simple-knn", editable = true }
+diff-gaussian-rasterization = { path = "submodules/diff-gaussian-rasterization", editable = true }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = []
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.isort]
+length-sort = true
+length-sort-straight = true
+
+[tool.mypy]
+python_version = "3.11"
+follow_imports = "silent"
+plugins = ["numpy.typing.mypy_plugin"]
+disallow_any_generics = true
+strict_optional = true
+check_untyped_defs = true
+allow_redefinition = true
+
+[tool.flake8]
+max-line-length = 120
+ignore = "Q000,E127,E203,E402,W503,W504"

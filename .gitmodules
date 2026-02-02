@@ -1,3 +1,12 @@
 [submodule "SIBR_viewers"]
 	path = SIBR_viewers
 	url = https://gitlab.inria.fr/sibr/sibr_core.git
+[submodule "submodules/simple-knn"]
+	path = submodules/simple-knn
+	url = git@github.com:tatsy/simple-knn.git
+[submodule "submodules/diff-gaussian-rasterization"]
+	path = submodules/diff-gaussian-rasterization
+	url = git@github.com:tatsy/diff-gaussian-rasterization.git
+[submodule "submodules/fused-ssim"]
+	path = submodules/fused-ssim
+	url = git@github.com:tatsy/fused-ssim.git
