@@ -120,7 +120,7 @@ def render(
             cov3D_precomp=cov3D_precomp,
         )
     else:
-        rendered_image, radii, _, gs_w = rasterizer(
+        rendered_image, radii, depth_image, gs_w = rasterizer(
             means3D=means3D,
             means2D=means2D,
             shs=shs,
@@ -141,10 +141,12 @@ def render(
 
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
+    rendered_image = rendered_image.clamp(0, 1)
     return {
         'render': rendered_image,
         'viewspace_points': screenspace_points,
         'visibility_filter': (radii > 0).nonzero(),
         'radii': radii,
         'gs_w': gs_w,
+        'depth': depth_image,
     }

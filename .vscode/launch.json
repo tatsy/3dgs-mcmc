@@ -1,0 +1,18 @@
+{
+    "configurations": [
+        {
+            "name": "train.py (ADC)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/train.py",
+            "console": "integratedTerminal",
+            "args": [
+                "-s", "/data/3dgs/Kyodo/Rikuchu3",
+                "-m", "output/Rikuchu3_exp_aa",
+                "-r", "1600",
+                "--data_device", "cpu",
+                "--densification", "default",
+            ]
+        }
+    ]
+}

@@ -113,7 +113,8 @@ def training(
             if img_num == -1:
                 img_num = len(viewpoint_stack)
 
-        viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack) - 1))
+        rand_idx = randint(0, len(viewpoint_stack) - 1)
+        viewpoint_cam = viewpoint_stack.pop(rand_idx)
 
         # Render
         if (iteration - 1) == debug_from:
@@ -138,6 +139,10 @@ def training(
             render_pkg['gs_w'],
         )
 
+        if viewpoint_cam.alpha_mask is not None:
+            alpha_mask = viewpoint_cam.alpha_mask.cuda()
+            image *= alpha_mask
+
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
         Ll1 = l1_loss(image, gt_image)
@@ -149,6 +154,12 @@ def training(
 
         loss = loss + opt_params.opacity_reg * torch.abs(gaussians.get_opacity).mean()
         loss = loss + opt_params.scale_reg * torch.abs(gaussians.get_scaling).mean()
+
+        # anisotropy regularization (PhysGaussian)
+        scaling = gaussians.get_scaling
+        aniso_ratio = torch.max(scaling, dim=1).values / torch.min(scaling, dim=1).values
+        aniso_penalty = torch.relu(aniso_ratio - opt_params.aniso_ratio_thresh).mean()
+        loss = loss + opt_params.aniso_reg * aniso_penalty
 
         loss.backward()
         iter_end.record()
@@ -190,6 +201,7 @@ def training(
                     None,
                     model_params.train_test_exp,
                 ),
+                model_params.train_test_exp,
             )
             if iteration in saving_iterations:
                 print(f'\n[ITER {iteration}] Saving Gaussians', end='')
@@ -336,7 +348,17 @@ def prepare_output_and_logger(args):
 
 
 def training_report(
-    tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene: Scene, renderFunc, renderArgs
+    tb_writer,
+    iteration,
+    Ll1,
+    loss,
+    l1_loss,
+    elapsed,
+    testing_iterations,
+    scene: Scene,
+    renderFunc,
+    renderArgs,
+    train_test_exp: bool,
 ):
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
@@ -362,6 +384,10 @@ def training_report(
                 for idx, viewpoint in enumerate(config['cameras']):
                     image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)['render'], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.cuda(), 0.0, 1.0)
+                    if train_test_exp:
+                        image = image[..., image.shape[-1] // 2 :]
+                        gt_image = gt_image[..., gt_image.shape[-1] // 2 :]
+
                     if tb_writer and (idx < 5):
                         tb_writer.add_images(
                             f'{config["name"]}_view_{viewpoint.image_name}/render',

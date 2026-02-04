@@ -24,7 +24,12 @@ class Scene:
     gaussians: GaussianModel
 
     def __init__(
-        self, args: ModelParams, gaussians: GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0]
+        self,
+        args: ModelParams,
+        gaussians: GaussianModel,
+        load_iteration=None,
+        shuffle=True,
+        resolution_scales=[1.0],
     ):
         """b
         :param path: Path to colmap scene main folder.
@@ -47,7 +52,9 @@ class Scene:
             scene_info = readColmapSceneInfo(
                 getattr(args, 'source_path'),
                 getattr(args, 'images'),
+                getattr(args, 'depths'),
                 getattr(args, 'eval'),
+                getattr(args, 'train_test_exp'),
                 init_type=getattr(args, 'init_type'),
             )
         elif os.path.exists(os.path.join(getattr(args, 'source_path'), 'transforms_train.json')):
@@ -86,11 +93,19 @@ class Scene:
         for resolution_scale in resolution_scales:
             print('Loading Training Cameras')
             self.train_cameras[resolution_scale] = cameraList_from_camInfos(
-                scene_info.train_cameras, resolution_scale, args
+                scene_info.train_cameras,
+                resolution_scale,
+                args,
+                scene_info.is_nerf_synthetic,
+                False,
             )
             print('Loading Test Cameras')
             self.test_cameras[resolution_scale] = cameraList_from_camInfos(
-                scene_info.test_cameras, resolution_scale, args
+                scene_info.test_cameras,
+                resolution_scale,
+                args,
+                scene_info.is_nerf_synthetic,
+                True,
             )
 
         if self.loaded_iter:

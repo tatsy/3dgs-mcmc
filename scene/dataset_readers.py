@@ -12,7 +12,8 @@
 import os
 import sys
 import json
-from typing import NamedTuple
+import logging
+from typing import Any, NamedTuple
 from pathlib import Path
 
 import numpy as np
@@ -35,15 +36,17 @@ from utils.graphics_utils import focal2fov, fov2focal, getWorld2View2
 
 class CameraInfo(NamedTuple):
     uid: int
-    R: np.array
-    T: np.array
-    FovY: np.array
-    FovX: np.array
-    image: np.array
+    R: np.ndarray
+    T: np.ndarray
+    FovY: np.ndarray
+    FovX: np.ndarray
+    depth_params: dict[str, Any] | None
     image_path: str
     image_name: str
+    depth_path: str | None
     width: int
     height: int
+    is_test: bool
 
 
 class SceneInfo(NamedTuple):
@@ -52,6 +55,7 @@ class SceneInfo(NamedTuple):
     test_cameras: list
     nerf_normalization: dict
     ply_path: str
+    is_nerf_synthetic: bool
 
 
 def getNerfppNorm(cam_info):
@@ -78,10 +82,18 @@ def getNerfppNorm(cam_info):
     return {'translate': translate, 'radius': radius}
 
 
-def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
+def readColmapCameras(
+    cam_extrinsics,
+    cam_intrinsics,
+    depths_params,
+    images_folder,
+    depths_folder,
+    test_cam_names_list,
+):
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
+
         # the exact output you're looking for:
         sys.stdout.write('Reading camera {}/{}'.format(idx + 1, len(cam_extrinsics)))
         sys.stdout.flush()
@@ -106,12 +118,21 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
             FovX = focal2fov(focal_length_x, width)
         else:
             assert False, (
-                'Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!'
+                'Colmap camera model not handled: only undistorted datasets '
+                '(PINHOLE or SIMPLE_PINHOLE cameras) supported!'
             )
 
+        n_remove = len(extr.name.split('.')) + 1
+        depth_params = None
+        if depths_params is not None:
+            try:
+                depth_params = depths_params[extr.name[:-n_remove]]
+            except Exception:
+                print(f'\n{key} not found int depths_params')
+
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
-        image_name = os.path.basename(image_path).split('.')[0]
-        image = Image.open(image_path)
+        image_name = extr.name
+        depth_path = os.path.join(depths_folder, f'{extr.name[:-n_remove]}.png') if depths_folder != '' else ''
 
         cam_info = CameraInfo(
             uid=uid,
@@ -119,13 +140,16 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
             T=T,
             FovY=FovY,
             FovX=FovX,
-            image=image,
+            depth_params=depth_params,
             image_path=image_path,
             image_name=image_name,
+            depth_path=depth_path,
             width=width,
             height=height,
+            is_test=image_name in test_cam_names_list,
         )
         cam_infos.append(cam_info)
+
     sys.stdout.write('\n')
     return cam_infos
 
@@ -165,34 +189,87 @@ def storePly(path, xyz, rgb):
     ply_data.write(path)
 
 
-def readColmapSceneInfo(path, images, eval, llffhold=8, init_type='sfm', num_pts=100000):
+def readColmapSceneInfo(
+    path: str,
+    images: str | None,
+    depths: str | None,
+    eval: bool,
+    train_test_exp: bool,
+    llffhold: int = 8,
+    init_type: str = 'sfm',
+    num_pts: int = 100000,
+):
     try:
         cameras_extrinsic_file = os.path.join(path, 'sparse/0', 'images.bin')
         cameras_intrinsic_file = os.path.join(path, 'sparse/0', 'cameras.bin')
         cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
         cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
-    except:
+    except Exception:
         cameras_extrinsic_file = os.path.join(path, 'sparse/0', 'images.txt')
         cameras_intrinsic_file = os.path.join(path, 'sparse/0', 'cameras.txt')
         cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
         cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
-    reading_dir = 'images' if images == None else images
+    depth_params_file = os.path.join(path, 'sparse', '0', 'depths_params.json')
+
+    # if depth_params_file isnt there AND depths file is here -> throw error
+    depths_params = None
+    if depths != '':
+        try:
+            with open(depth_params_file, 'r') as f:
+                depths_params = json.load(f)
+            all_scales = np.array([depths_params[key]['scale'] for key in depths_params])
+            if (all_scales > 0).sum():
+                med_scale = np.median(all_scales[all_scales > 0])
+            else:
+                med_scale = 0
+            for key in depths_params:
+                depths_params[key]['med_scale'] = med_scale
+
+        except FileNotFoundError:
+            print(f"Error: depth_params.json file not found at path '{depth_params_file}'.")
+            sys.exit(1)
+        except Exception as e:
+            print(f'An unexpected error occurred when trying to open depth_params.json file: {e}')
+            sys.exit(1)
+
+    if eval:
+        if '360' in path:
+            llffhold = 8
+
+        if llffhold:
+            print('------------LLFF HOLD-------------')
+            cam_names = [cam_extrinsics[cam_id].name for cam_id in cam_extrinsics]
+            cam_names = sorted(cam_names)
+            test_cam_names_list = [name for idx, name in enumerate(cam_names) if idx % llffhold == 0]
+        else:
+            with open(os.path.join(path, 'sparse', '0', 'test.txt'), mode='r') as file:
+                test_cam_names_list = [line.strip() for line in file]
+    else:
+        test_cam_names_list = []
+        test_file = os.path.join(path, 'test_list.txt')
+        if os.path.exists(test_file):
+            with open(test_file, mode='r') as f:
+                test_cam_names_list = [line.strip() for line in f]
+
+    reading_dir = 'images' if images is None else images
     cam_infos_unsorted = readColmapCameras(
-        cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir)
+        cam_extrinsics=cam_extrinsics,
+        cam_intrinsics=cam_intrinsics,
+        depths_params=depths_params,
+        images_folder=os.path.join(path, reading_dir),
+        depths_folder=os.path.join(path, depths) if depths != '' else '',
+        test_cam_names_list=test_cam_names_list,
     )
     cam_infos = sorted(cam_infos_unsorted.copy(), key=lambda x: x.image_name)
 
-    if eval:
-        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
-        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
-    else:
-        train_cam_infos = cam_infos
-        test_cam_infos = []
+    train_cam_infos = [c for c in cam_infos if train_test_exp or not c.is_test]
+    test_cam_infos = [c for c in cam_infos if c.is_test]
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
 
     if init_type == 'sfm':
+        logging.info('Scene is initialized from COLMAP SfM.')
         ply_path = os.path.join(path, 'sparse/0/points3D.ply')
         bin_path = os.path.join(path, 'sparse/0/points3D.bin')
         txt_path = os.path.join(path, 'sparse/0/points3D.txt')
@@ -200,10 +277,12 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, init_type='sfm', num_pts
             print('Converting point3d.bin to .ply, will happen only the first time you open the scene.')
             try:
                 xyz, rgb, _ = read_points3D_binary(bin_path)
-            except:
+            except Exception:
                 xyz, rgb, _ = read_points3D_text(txt_path)
             storePly(ply_path, xyz, rgb)
+
     elif init_type == 'random':
+        logging.info('Scene is initialized from random points.')
         ply_path = os.path.join(path, 'random.ply')
         print(f'Generating random point cloud ({num_pts})...')
 
@@ -214,13 +293,13 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, init_type='sfm', num_pts
         pcd = BasicPointCloud(points=xyz, colors=SH2RGB(shs), normals=np.zeros((num_pts, 3)))
 
         storePly(ply_path, xyz, SH2RGB(shs) * 255)
+
     else:
-        print('Please specify a correct init_type: random or sfm')
-        exit(0)
+        raise ValueError(f'Unknown init_type: {init_type}')
 
     try:
         pcd = fetchPly(ply_path)
-    except:
+    except Exception:
         pcd = None
 
     scene_info = SceneInfo(
@@ -229,6 +308,7 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, init_type='sfm', num_pts
         test_cameras=test_cam_infos,
         nerf_normalization=nerf_normalization,
         ply_path=ply_path,
+        is_nerf_synthetic=False,
     )
     return scene_info
 
