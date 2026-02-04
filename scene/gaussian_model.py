@@ -281,6 +281,7 @@ class GaussianModel:
 
         for i in range(self._rotation.shape[1]):
             attrs.append('rot_{}'.format(i))
+
         return attrs
 
     def save_ply(self, path):
@@ -350,6 +351,7 @@ class GaussianModel:
         features_extra = np.zeros((xyz.shape[0], len(extra_f_names)))
         for idx, attr_name in enumerate(extra_f_names):
             features_extra[:, idx] = np.asarray(plydata.elements[0][attr_name])
+
         # Reshape (P,F*SH_coeffs) to (P, F, SH_coeffs except DC)
         features_extra = features_extra.reshape((features_extra.shape[0], 3, (self.max_sh_degree + 1) ** 2 - 1))
 
@@ -440,6 +442,18 @@ class GaussianModel:
         self.denom = self.denom[valid_points_mask]
         self.max_radii2D = self.max_radii2D[valid_points_mask]
         self.max_weight = self.max_weight[valid_points_mask]
+
+    def initial_prune(self):
+        pts_mask_1 = torch.max(self.get_scaling, dim=1).values > torch.mean(self.get_scaling)
+        if len(self.get_scaling) < 500_0000:
+            pts_mask_2 = torch.max(self.get_scaling, dim=1).values > torch.quantile(self.get_scaling, 0.999)
+        else:
+            pts_mask_2 = torch.max(self.get_scaling, dim=1).values > torch.mean(self.get_scaling) * 4
+
+        selected_pts_mask = torch.logical_and(pts_mask_1, pts_mask_2)
+        num_prune = selected_pts_mask.sum().item()
+        print(f'Initial pruning based on radius & #splats: {num_prune} points removed')
+        self.prune_points(selected_pts_mask)
 
     def cat_tensors_to_optimizer(self, tensors_dict):
         assert self.optimizer is not None
@@ -563,10 +577,12 @@ class GaussianModel:
         self.densify_and_clone(grads, max_grad, extent)
 
         if max_grad_abs is not None:
+            # AbsGS's desnsify & split
             grads_abs = self.xyz_gradient_abs_accum / self.denom
             grads_abs[grads_abs.isnan()] = 0.0
-            self.densify_and_clone(grads_abs, max_grad_abs, extent)
+            self.densify_and_split(grads_abs, max_grad_abs, extent)
         else:
+            # default densify & split
             self.densify_and_split(grads, max_grad, extent)
 
         prune_mask = (self.get_opacity < min_opacity).squeeze()
@@ -574,6 +590,7 @@ class GaussianModel:
             big_points_vs = self.max_radii2D > max_screen_size
             big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
+
         self.prune_points(prune_mask)
 
         self.tmp_radii = None

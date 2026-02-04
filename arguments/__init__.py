@@ -93,21 +93,21 @@ class OptimizationParams(ParamGroup):
         self.exposure_lr_final = 0.001
         self.exposure_lr_delay_steps = 0
         self.exposure_lr_delay_mult = 0.0
-        self.percent_dense = 0.01
+        self.percent_dense = 0.001
         self.lambda_dssim = 0.2
         self.densification_interval = 100
-        self.opacity_reset_interval = 3000
+        self.opacity_reset_interval = 3_000
         self.densify_from_iter = 500
         self.densify_until_iter = 25_000
         self.densify_grad_threshold = 0.0002
         self.densify_grad_abs_threshold = 0.0004
 
         self.use_reduce = True
-        self.opacity_reduce_interval = 500
+        self.opacity_reduce_interval = 3_000
 
         self.use_prune_weight = False
         self.prune_until_iter = 25_000
-        self.min_weight = 0.7
+        self.min_weight = 0.5
 
         self.random_background = False
         self.noise_lr = 5e5

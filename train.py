@@ -55,36 +55,50 @@ except ImportError:
     print('Sparse Adam not found, use slow pytorch version.')
 
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
-    if dataset.cap_max == -1:
+def training(
+    model_params,
+    opt_params,
+    pipe_params,
+    testing_iterations,
+    saving_iterations,
+    checkpoint_iterations,
+    checkpoint,
+    debug_from,
+):
+    if pipe_params.densification == 'mcmc' and model_params.cap_max == -1:
         print('Please specify the maximum number of Gaussians using --cap_max.')
         sys.exit(1)
 
     first_iter = 0
-    tb_writer = prepare_output_and_logger(dataset)
-    gaussians = GaussianModel(dataset.sh_degree, args.optimizer_type)
-    scene = Scene(dataset, gaussians)
-    gaussians.training_setup(opt)
+    tb_writer = prepare_output_and_logger(model_params)
+    gaussians = GaussianModel(model_params.sh_degree, opt_params.optimizer_type)
+    scene = Scene(model_params, gaussians)
+    gaussians.training_setup(opt_params)
+
+    if model_params.init_prune:
+        logging.info('Initial pruning of Gaussians...')
+        gaussians.initial_prune()
+
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
-        gaussians.restore(model_params, opt)
+        gaussians.restore(model_params, opt_params)
 
-    bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
+    bg_color = [1, 1, 1] if model_params.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device='cuda')
 
     iter_start = torch.cuda.Event(enable_timing=True)
     iter_end = torch.cuda.Event(enable_timing=True)
 
-    use_sparse_adam = opt.optimizer_type == 'sparse_adam' and SPARSE_ADAM_AVAILABLE
+    use_sparse_adam = opt_params.optimizer_type == 'sparse_adam' and SPARSE_ADAM_AVAILABLE
 
     viewpoint_stack = None
     ema_loss_for_log = 0.0
-    progress_bar = tqdm(range(first_iter, opt.iterations), desc='Training progress')
+    progress_bar = tqdm(range(first_iter, opt_params.iterations), desc='Training progress')
     first_iter += 1
     img_num = -1
     img_num_modifier = 1
 
-    for iteration in range(first_iter, opt.iterations + 1):
+    for iteration in range(first_iter, opt_params.iterations + 1):
         iter_start.record()
 
         xyz_lr = gaussians.update_learning_rate(iteration)
@@ -103,17 +117,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         # Render
         if (iteration - 1) == debug_from:
-            pipe.debug = True
+            pipe_params.debug = True
 
-        bg = torch.rand((3), device='cuda') if opt.random_background else background
+        bg = torch.rand((3), device='cuda') if opt_params.random_background else background
 
         render_pkg = render(
             viewpoint_cam,
             gaussians,
-            pipe,
+            pipe_params,
             bg,
             separate_sh=SPARSE_ADAM_AVAILABLE,
-            use_trained_exp=dataset.train_test_exp,
+            use_trained_exp=model_params.train_test_exp,
         )
 
         image, viewspace_point_tensor, visibility_filter, radii, gs_w = (
@@ -131,10 +145,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
         else:
             ssim_value = ssim(image, gt_image)
-        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
+        loss = (1.0 - opt_params.lambda_dssim) * Ll1 + opt_params.lambda_dssim * (1.0 - ssim_value)
 
-        loss = loss + args.opacity_reg * torch.abs(gaussians.get_opacity).mean()
-        loss = loss + args.scale_reg * torch.abs(gaussians.get_scaling).mean()
+        loss = loss + opt_params.opacity_reg * torch.abs(gaussians.get_opacity).mean()
+        loss = loss + opt_params.scale_reg * torch.abs(gaussians.get_scaling).mean()
 
         loss.backward()
         iter_end.record()
@@ -154,7 +168,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 progress_bar.set_description(f'loss={ema_loss_for_log:.6f}, #splat={n_gauss_str}')
                 progress_bar.update(10)
 
-            if iteration == opt.iterations:
+            if iteration == opt_params.iterations:
                 progress_bar.close()
 
             # Log and save
@@ -169,21 +183,21 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 scene,
                 render,
                 (
-                    pipe,
+                    pipe_params,
                     background,
                     1.0,
                     SPARSE_ADAM_AVAILABLE,
                     None,
-                    dataset.train_test_exp,
+                    model_params.train_test_exp,
                 ),
             )
             if iteration in saving_iterations:
                 print(f'\n[ITER {iteration}] Saving Gaussians', end='')
                 scene.save(iteration)
 
-            if pipe.densification == 'default':
+            if pipe_params.densification == 'default':
                 # Densification (Inria's original)
-                if iteration < opt.densify_until_iter:
+                if iteration < opt_params.densify_until_iter:
                     # Keep track of max radii in image-space for pruning
                     gaussians.max_radii2D[visibility_filter] = torch.max(
                         gaussians.max_radii2D[visibility_filter],
@@ -191,10 +205,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     )
                     gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
-                    if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                        size_threshold = 20 if iteration > opt.opacity_reset_interval else None
+                    if iteration > opt_params.densify_from_iter and iteration % opt_params.densification_interval == 0:
+                        size_threshold = 20 if iteration > opt_params.opacity_reset_interval else None
                         gaussians.densify_and_prune(
-                            opt.densify_grad_threshold,
+                            opt_params.densify_grad_threshold,
                             None,
                             0.005,
                             scene.cameras_extent,
@@ -202,64 +216,71 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                             radii,
                         )
 
-                    if iteration % opt.opacity_reset_interval == 0 or (
-                        dataset.white_background and iteration == opt.densify_from_iter
+                    if iteration % opt_params.opacity_reset_interval == 0 or (
+                        model_params.white_background and iteration == opt_params.densify_from_iter
                     ):
                         gaussians.reset_opacity()
 
-            elif pipe.densification == 'mcmc':
+            elif pipe_params.densification == 'mcmc':
                 # Densification by MCMC
                 if (
-                    iteration < opt.densify_until_iter
-                    and iteration > opt.densify_from_iter
-                    and iteration % opt.densification_interval == 0
+                    iteration < opt_params.densify_until_iter
+                    and iteration > opt_params.densify_from_iter
+                    and iteration % opt_params.densification_interval == 0
                 ):
                     dead_mask = (gaussians.get_opacity <= 0.005).squeeze(-1)
                     gaussians.relocate_gs(dead_mask=dead_mask)
-                    gaussians.add_new_gs(cap_max=args.cap_max)
+                    gaussians.add_new_gs(cap_max=model_params.cap_max)
 
-            elif pipe.densification == 'absgs':
+            elif pipe_params.densification == 'absgs':
+                # Keep track of max weight of each GS for pruning
                 gaussians.max_weight[visibility_filter] = torch.max(
-                    gaussians.max_weight[visibility_filter], gs_w[visibility_filter]
+                    gaussians.max_weight[visibility_filter],
+                    gs_w[visibility_filter],
                 )
 
-                if iteration < opt.densify_until_iter:
+                if iteration < opt_params.densify_until_iter:
                     # Keep track of max radii in image-space for pruning
                     gaussians.max_radii2D[visibility_filter] = torch.max(
-                        gaussians.max_radii2D[visibility_filter], radii[visibility_filter]
+                        gaussians.max_radii2D[visibility_filter],
+                        radii[visibility_filter],
                     )
                     gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
-                    if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                        size_threshold = 20 if iteration > opt.opacity_reset_interval else None
+                    if iteration > opt_params.densify_from_iter and iteration % opt_params.densification_interval == 0:
+                        size_threshold = 20 if iteration > opt_params.opacity_reset_interval else None
                         gaussians.densify_and_prune(
-                            opt.densify_grad_threshold,
-                            opt.densify_grad_abs_threshold,
+                            opt_params.densify_grad_threshold,
+                            opt_params.densify_grad_abs_threshold,
                             0.005,
                             scene.cameras_extent,
                             size_threshold,
                             radii,
                         )
 
-                    if iteration % opt.opacity_reduce_interval == 0 and opt.use_reduce:
+                    if iteration % opt_params.opacity_reduce_interval == 0 and opt_params.use_reduce:
                         gaussians.reduce_opacity()
 
-                    if iteration % opt.opacity_reset_interval == 0 or (
-                        dataset.white_background and iteration == opt.densify_from_iter
+                    if iteration % opt_params.opacity_reset_interval == 0 or (
+                        model_params.white_background and iteration == opt_params.densify_from_iter
                     ):
                         gaussians.reset_opacity()
 
-                if iteration > opt.densify_from_iter and iteration < opt.prune_until_iter and opt.use_prune_weight:
+                if (
+                    iteration > opt_params.densify_from_iter
+                    and iteration < opt_params.prune_until_iter
+                    and opt_params.use_prune_weight
+                ):
                     if (
                         iteration % img_num / img_num_modifier == 0
-                        and iteration % opt.opacity_reset_interval > img_num / img_num_modifier
+                        and iteration % opt_params.opacity_reset_interval > img_num / img_num_modifier
                     ):
-                        prune_mask = (gaussians.max_weight < opt.min_weight).squeeze()
+                        prune_mask = (gaussians.max_weight < opt_params.min_weight).squeeze()
                         gaussians.prune_points(prune_mask)
                         gaussians.max_weight *= 0
 
             # Optimizer step
-            if iteration < opt.iterations:
+            if iteration < opt_params.iterations:
                 assert gaussians.exposure_optimizer is not None
                 gaussians.exposure_optimizer.step()
                 gaussians.exposure_optimizer.zero_grad(set_to_none=True)
@@ -278,10 +299,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 actual_covariance = L @ L.transpose(1, 2)
 
                 def op_sigmoid(x, k=100, x0=0.995):
-                    return 1 / (1 + torch.exp(-k * (x - x0)))
+                    return 1.0 / (1.0 + torch.exp(-k * (x - x0)))
 
                 noise = (
-                    torch.randn_like(gaussians._xyz) * (op_sigmoid(1 - gaussians.get_opacity)) * args.noise_lr * xyz_lr
+                    torch.randn_like(gaussians._xyz)
+                    * (op_sigmoid(1.0 - gaussians.get_opacity))
+                    * opt_params.noise_lr
+                    * xyz_lr
                 )
                 noise = torch.bmm(actual_covariance, noise.unsqueeze(-1)).squeeze(-1)
                 gaussians._xyz.add_(noise)
@@ -385,9 +409,9 @@ if __name__ == '__main__':
 
     # Set up command line argument parser
     parser = ArgumentParser(description='Training script parameters')
-    lp = ModelParams(parser)
-    op = OptimizationParams(parser)
-    pp = PipelineParams(parser)
+    model_params = ModelParams(parser)
+    opt_params = OptimizationParams(parser)
+    pipe_params = PipelineParams(parser)
     parser.add_argument('--config', type=str, default=None)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
@@ -414,9 +438,9 @@ if __name__ == '__main__':
     # network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
     training(
-        lp.extract(args),
-        op.extract(args),
-        pp.extract(args),
+        model_params.extract(args),
+        opt_params.extract(args),
+        pipe_params.extract(args),
         args.test_iterations,
         args.save_iterations,
         args.checkpoint_iterations,

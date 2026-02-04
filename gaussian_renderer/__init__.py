@@ -38,7 +38,12 @@ def render(
     """
 
     # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
-    screenspace_points = torch.zeros_like(pc.get_xyz, dtype=pc.get_xyz.dtype, requires_grad=True, device='cuda') + 0
+    screenspace_points = torch.zeros(
+        (pc.get_xyz.shape[0], 4),
+        dtype=pc.get_xyz.dtype,
+        requires_grad=True,
+        device='cuda',
+    )
     try:
         screenspace_points.retain_grad()
     except Exception:
@@ -103,7 +108,7 @@ def render(
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen).
     if separate_sh:
-        rendered_image, radii, depth_image, gs_w, is_used = rasterizer(
+        rendered_image, radii, depth_image, gs_w = rasterizer(
             means3D=means3D,
             means2D=means2D,
             dc=dc,
@@ -115,7 +120,7 @@ def render(
             cov3D_precomp=cov3D_precomp,
         )
     else:
-        rendered_image, radii, _, gs_w, is_used = rasterizer(
+        rendered_image, radii, _, gs_w = rasterizer(
             means3D=means3D,
             means2D=means2D,
             shs=shs,
@@ -142,5 +147,4 @@ def render(
         'visibility_filter': (radii > 0).nonzero(),
         'radii': radii,
         'gs_w': gs_w,
-        'is_used': is_used,
     }
