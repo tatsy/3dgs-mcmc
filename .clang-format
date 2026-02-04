@@ -23,7 +23,7 @@ BreakConstructorInitializersBeforeComma: true
 Cpp11BracedListStyle: false
 ConstructorInitializerAllOnOneLineOrOnePerLine: false
 DerivePointerAlignment: false
-PPIndentWidth: 2
+PPIndentWidth: 4
 IndentPPDirectives: BeforeHash
 InsertBraces: true
 MaxEmptyLinesToKeep: 1

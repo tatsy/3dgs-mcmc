@@ -58,6 +58,7 @@ class ModelParams(ParamGroup):
         self.data_device = 'cuda'
         self.eval = False
         self.cap_max = -1
+        self.init_prune = False
         self.init_type = 'random'
         super().__init__(parser, 'Loading Parameters', sentinel)
 
@@ -72,21 +73,26 @@ class PipelineParams(ParamGroup):
         self.convert_SHs_python = False
         self.compute_cov3D_python = False
         self.debug = False
+        self.densification = 'default'
         self.antialiasing = False
         super().__init__(parser, 'Pipeline Parameters')
 
 
 class OptimizationParams(ParamGroup):
     def __init__(self, parser):
-        self.iterations = 30_000
+        self.iterations = 50_000
         self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016
         self.position_lr_delay_mult = 0.01
-        self.position_lr_max_steps = 30_000
+        self.position_lr_max_steps = 50_000
         self.feature_lr = 0.0025
         self.opacity_lr = 0.05
         self.scaling_lr = 0.005
         self.rotation_lr = 0.001
+        self.exposure_lr_init = 0.01
+        self.exposure_lr_final = 0.001
+        self.exposure_lr_delay_steps = 0
+        self.exposure_lr_delay_mult = 0.0
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
         self.densification_interval = 100
@@ -94,10 +100,20 @@ class OptimizationParams(ParamGroup):
         self.densify_from_iter = 500
         self.densify_until_iter = 25_000
         self.densify_grad_threshold = 0.0002
+        self.densify_grad_abs_threshold = 0.0004
+
+        self.use_reduce = True
+        self.opacity_reduce_interval = 500
+
+        self.use_prune_weight = False
+        self.prune_until_iter = 25_000
+        self.min_weight = 0.7
+
         self.random_background = False
         self.noise_lr = 5e5
         self.scale_reg = 0.01
         self.opacity_reg = 0.01
+        self.optimizer_type = 'default'
         super().__init__(parser, 'Optimization Parameters')
 
 
@@ -115,11 +131,12 @@ def get_combined_args(parser: ArgumentParser):
     except TypeError:
         print('Config file not found at')
         pass
+
     args_cfgfile = eval(cfgfile_string)
 
     merged_dict = vars(args_cfgfile).copy()
     for k, v in vars(args_cmdline).items():
         if v is not None:
             merged_dict[k] = v
-    return Namespace(**merged_dict)
+
     return Namespace(**merged_dict)
