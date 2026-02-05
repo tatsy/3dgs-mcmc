@@ -192,7 +192,7 @@ def storePly(path, xyz, rgb):
 def readColmapSceneInfo(
     path: str,
     images: str | None,
-    depths: str | None,
+    depths: str,
     eval: bool,
     train_test_exp: bool,
     llffhold: int = 8,

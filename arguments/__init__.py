@@ -102,6 +102,7 @@ class OptimizationParams(ParamGroup):
         self.densify_until_iter = 25_000
         self.densify_grad_threshold = 0.0002
         self.densify_grad_abs_threshold = 0.0004
+        self.random_background = False
 
         self.use_reduce = True
         self.opacity_reduce_interval = 1_000
@@ -113,10 +114,11 @@ class OptimizationParams(ParamGroup):
         self.aniso_reg = 0.0
         self.aniso_ratio_thresh = 3.0
 
-        self.random_background = False
+        # 3dgs-mcmc
         self.noise_lr = 5e5
-        self.scale_reg = 0.01
-        self.opacity_reg = 0.01
+        self.scale_reg = 0.0
+        self.opacity_reg = 0.0
+
         self.optimizer_type = 'default'
         super().__init__(parser, 'Optimization Parameters')
 

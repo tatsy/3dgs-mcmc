@@ -152,6 +152,7 @@ def training(
             ssim_value = ssim(image, gt_image)
         loss = (1.0 - opt_params.lambda_dssim) * Ll1 + opt_params.lambda_dssim * (1.0 - ssim_value)
 
+        # Regularization
         loss = loss + opt_params.opacity_reg * torch.abs(gaussians.get_opacity).mean()
         loss = loss + opt_params.scale_reg * torch.abs(gaussians.get_scaling).mean()
 
@@ -307,20 +308,22 @@ def training(
                     gaussians.optimizer.step()
                     gaussians.optimizer.zero_grad(set_to_none=True)
 
-                L = build_scaling_rotation(gaussians.get_scaling, gaussians.get_rotation)
-                actual_covariance = L @ L.transpose(1, 2)
+                if pipe_params.densification == 'mcmc':
+                    # Langevin Monte Carlo noise addition
+                    L = build_scaling_rotation(gaussians.get_scaling, gaussians.get_rotation)
+                    actual_covariance = L @ L.transpose(1, 2)
 
-                def op_sigmoid(x, k=100, x0=0.995):
-                    return 1.0 / (1.0 + torch.exp(-k * (x - x0)))
+                    def op_sigmoid(x, k=100, x0=0.995):
+                        return 1.0 / (1.0 + torch.exp(-k * (x - x0)))
 
-                noise = (
-                    torch.randn_like(gaussians._xyz)
-                    * (op_sigmoid(1.0 - gaussians.get_opacity))
-                    * opt_params.noise_lr
-                    * xyz_lr
-                )
-                noise = torch.bmm(actual_covariance, noise.unsqueeze(-1)).squeeze(-1)
-                gaussians._xyz.add_(noise)
+                    noise = (
+                        torch.randn_like(gaussians._xyz)
+                        * (op_sigmoid(1.0 - gaussians.get_opacity))
+                        * opt_params.noise_lr
+                        * xyz_lr
+                    )
+                    noise = torch.bmm(actual_covariance, noise.unsqueeze(-1)).squeeze(-1)
+                    gaussians._xyz.add_(noise)
 
             if iteration in checkpoint_iterations:
                 print(f'\n[ITER {iteration}] Saving Checkpoint', end='')
@@ -463,6 +466,7 @@ if __name__ == '__main__':
     # Start GUI server, configure and run training
     # network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
+
     training(
         model_params.extract(args),
         opt_params.extract(args),
