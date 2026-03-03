@@ -734,6 +734,7 @@ class GaussianModel:
             self._opacity[dead_indices],
             self._scaling[dead_indices],
             self._rotation[dead_indices],
+            _,
         ) = self._update_params(reinit_idx, ratio=ratio)
 
         self._opacity[reinit_idx] = self._opacity[dead_indices]

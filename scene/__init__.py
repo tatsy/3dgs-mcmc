@@ -79,8 +79,10 @@ class Scene:
                 camlist.extend(scene_info.test_cameras)
             if scene_info.train_cameras:
                 camlist.extend(scene_info.train_cameras)
+
             for id, cam in enumerate(camlist):
                 json_cams.append(camera_to_JSON(id, cam))
+
             with open(os.path.join(self.model_path, 'cameras.json'), 'w') as file:
                 json.dump(json_cams, file)
 

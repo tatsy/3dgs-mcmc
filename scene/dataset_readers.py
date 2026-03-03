@@ -117,6 +117,8 @@ def readColmapCameras(
             FovY = focal2fov(focal_length_y, height)
             FovX = focal2fov(focal_length_x, width)
         else:
+            print(f'Camera model {intr.model} not supported!')
+            continue
             assert False, (
                 'Colmap camera model not handled: only undistorted datasets '
                 '(PINHOLE or SIMPLE_PINHOLE cameras) supported!'

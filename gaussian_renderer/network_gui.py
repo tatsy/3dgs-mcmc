@@ -17,17 +17,18 @@ import torch
 
 from utils.camera_utils import MiniCam
 
-host = '127.0.0.1'
-port = 6009
+host: str = '127.0.0.1'
+port: int = 6009
 
-conn = None
-addr = None
+conn: socket.socket | None = None
+addr: tuple[str, int] | None = None
 
 listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 
-def init(wish_host, wish_port):
+def init(wish_host: str, wish_port: int) -> None:
     global host, port, listener
+
     host = wish_host
     port = wish_port
     listener.bind((host, port))
@@ -47,6 +48,8 @@ def try_connect():
 
 def read():
     global conn
+    assert conn is not None
+
     messageLength = conn.recv(4)
     messageLength = int.from_bytes(messageLength, 'little')
     message = conn.recv(messageLength)
@@ -55,8 +58,11 @@ def read():
 
 def send(message_bytes, verify):
     global conn
-    if message_bytes != None:
+    assert conn is not None
+
+    if message_bytes is not None:
         conn.sendall(message_bytes)
+
     conn.sendall(len(verify).to_bytes(4, 'little'))
     conn.sendall(bytes(verify, 'ascii'))
 

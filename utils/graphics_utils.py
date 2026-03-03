@@ -78,6 +78,7 @@ def getProjectionMatrix(znear, zfar, fovX, fovY):
 
 
 def fov2focal(fov, pixels):
+    fov = max(fov, 1e-6)
     return pixels / (2 * math.tan(fov / 2))
 
 

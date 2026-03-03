@@ -71,10 +71,11 @@ line-length = 120
 quote-style = "single"
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
+select = ["F", "E", "W", "I"]
 ignore = []
-fixable = ["ALL"]
-unfixable = []
+fixable = ["F", "E", "W", "I"]
+unfixable = ["F401"]
+extend-ignore = ["D105", "D107", "D205", "D415"]
 
 [tool.ruff.lint.isort]
 length-sort = true
@@ -84,6 +85,7 @@ length-sort-straight = true
 python_version = "3.11"
 follow_imports = "silent"
 plugins = ["numpy.typing.mypy_plugin"]
+ignore_missing_imports = true
 disallow_any_generics = true
 strict_optional = true
 check_untyped_defs = true

@@ -211,6 +211,7 @@ def read_intrinsics_text(path):
                 height = int(elems[3])
                 params = np.array(tuple(map(float, elems[4:])))
                 cameras[camera_id] = Camera(id=camera_id, model=model, width=width, height=height, params=params)
+
     return cameras
 
 
@@ -287,24 +288,29 @@ def read_extrinsics_text(path):
                 break
             line = line.strip()
             if len(line) > 0 and line[0] != '#':
-                elems = line.split()
-                image_id = int(elems[0])
-                qvec = np.array(tuple(map(float, elems[1:5])))
-                tvec = np.array(tuple(map(float, elems[5:8])))
-                camera_id = int(elems[8])
-                image_name = elems[9]
-                elems = fid.readline().split()
-                xys = np.column_stack([tuple(map(float, elems[0::3])), tuple(map(float, elems[1::3]))])
-                point3D_ids = np.array(tuple(map(int, elems[2::3])))
-                images[image_id] = Image(
-                    id=image_id,
-                    qvec=qvec,
-                    tvec=tvec,
-                    camera_id=camera_id,
-                    name=image_name,
-                    xys=xys,
-                    point3D_ids=point3D_ids,
-                )
+                try:
+                    elems = line.split()
+                    image_id = int(elems[0])
+                    qvec = np.array(tuple(map(float, elems[1:5])))
+                    tvec = np.array(tuple(map(float, elems[5:8])))
+                    camera_id = int(elems[8])
+                    image_name = elems[9]
+                    elems = fid.readline().split()
+                    xys = np.column_stack([tuple(map(float, elems[0::3])), tuple(map(float, elems[1::3]))])
+                    point3D_ids = np.array(tuple(map(int, elems[2::3])))
+                    images[image_id] = Image(
+                        id=image_id,
+                        qvec=qvec,
+                        tvec=tvec,
+                        camera_id=camera_id,
+                        name=image_name,
+                        xys=xys,
+                        point3D_ids=point3D_ids,
+                    )
+                except Exception as e:
+                    logging.warning(f'Error while reading line: {line} with error: {e}')
+                    continue
+
     return images
 
 
