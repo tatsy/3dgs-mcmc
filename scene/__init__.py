@@ -27,23 +27,23 @@ class Scene:
         self,
         args: ModelParams,
         gaussians: GaussianModel,
-        load_iteration=None,
-        shuffle=True,
-        resolution_scales=[1.0],
+        load_iteration: int | None = None,
+        shuffle: bool = True,
+        resolution_scales: list[float] = [1.0],
     ):
         """b
         :param path: Path to colmap scene main folder.
         """
-        self.model_path = getattr(args, 'model_path')
-        self.loaded_iter = None
+        self.model_path: str = getattr(args, 'model_path')
+        self.loaded_iter: int | None = None
         self.gaussians = gaussians
 
-        if load_iteration:
+        if load_iteration is not None:
             if load_iteration == -1:
                 self.loaded_iter = searchForMaxIteration(os.path.join(self.model_path, 'point_cloud'))
             else:
                 self.loaded_iter = load_iteration
-            print('Loading trained model at iteration {}'.format(self.loaded_iter))
+            print(f'Loading trained model at iteration {self.loaded_iter}')
 
         self.train_cameras = {}
         self.test_cameras = {}
@@ -123,7 +123,7 @@ class Scene:
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, scene_info.train_cameras, self.cameras_extent)
 
-    def save(self, iteration):
+    def save(self, iteration: int) -> None:
         point_cloud_path = os.path.join(self.model_path, f'point_cloud/iteration_{iteration}')
         self.gaussians.save_ply(os.path.join(point_cloud_path, 'point_cloud.ply'))
 
@@ -132,11 +132,11 @@ class Scene:
             for image_name in self.gaussians.exposure_mapping
         }
 
-        with open(os.path.join(self.model_path, 'exposure.json'), 'w') as f:
+        with open(os.path.join(self.model_path, 'exposure.json'), mode='w') as f:
             json.dump(exposure_dict, f, indent=2)
 
-    def getTrainCameras(self, scale=1.0):
+    def getTrainCameras(self, scale: float = 1.0):
         return self.train_cameras[scale]
 
-    def getTestCameras(self, scale=1.0):
+    def getTestCameras(self, scale: float = 1.0):
         return self.test_cameras[scale]
